@@ -1,0 +1,55 @@
+name: Update Job Status Report
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 * * * *"
+
+jobs:
+  update_job_status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Initialize Environment
+        run: echo "START_TIME=\$(date +%s)" >> $GITHUB_ENV
+
+      - name: Get Job Status
+        id: job_status
+        run: |
+          echo "## Job Status" > job_status.md
+          passed_count=0
+          failed_count=0
+          for file in $(find . -type f -name '*.yml'); do
+            job_status_info=$(grep -E "name: '(.+)'|name: \"(.+)\"" "$file" | while read -r line; do
+              job_name=$(echo "$line" | grep -oP "(?<=name: ['\"])[^'\"]+(?=['\"])")
+              if echo "$line" | grep -qE "if: \$\{ \{ always\(\) \}\?success\(\) \}"; then
+                job_status="✔️ PASS"
+                ((passed_count++))
+              else
+                job_status="❌ FAIL"
+                ((failed_count++))
+              fi
+              echo "- $job_name: $job_status"
+            done)
+            echo "$job_status_info" >> job_status.md
+          done
+
+      - name: Create Job Status Report
+        run: |
+          cat job_status.md > job_status_report.md
+          echo >> job_status_report.md
+          echo "Job execution time: $((END_TIME - START_TIME)) seconds" >> job_status_report.md
+
+      - name: Upload Job Status Report
+        run: |
+          echo >> job_status_report.md
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git checkout -b job-status-report-branch
+          git add job_status_report.md
+          git commit -m "Add job status report"
+          git push origin job-status-report-branch
+
